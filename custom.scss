@@ -7,24 +7,34 @@ $primary: #1170AA !default;
 // 카드 헤더: 인사이트 제목을 또렷하게
 .card .card-header {
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   letter-spacing: -0.01em;
   background-color: #fbfbfc;
   border-bottom: 1px solid #eceef1;
+  padding-top: .4rem;
+  padding-bottom: .4rem;
 }
 
-// 값 박스: 숫자 강조, 라벨 가독성
+// 카드 본문이 넘칠 때 잘리지 않도록 스크롤 허용 + 하단 여백 확보
+.card-body { overflow: auto; padding-bottom: .55rem; }
+
+// 값 박스: 2줄 제목 + 숫자가 한 블록에 모두 들어오도록 폰트·줄간격 압축
 .bslib-value-box {
-  .value-box-value { font-weight: 700; font-size: clamp(1.6rem, 2.4vw, 2.4rem); }
-  .value-box-title { opacity: 0.92; font-weight: 500; }
+  .value-box-area { padding-top: .35rem; padding-bottom: .35rem; }
+  .value-box-value { font-weight: 700; font-size: clamp(1.3rem, 1.9vw, 1.9rem); line-height: 1.05; }
+  .value-box-title { opacity: 0.92; font-weight: 500; font-size: .78rem; line-height: 1.15; margin-bottom: .15rem; }
+  .value-box-showcase { padding: .2rem .4rem; }
 }
 
-// 본문 카드(callout형 .card)의 여백·줄간격
-.card > .card-body p { line-height: 1.55; }
+// 산문형 카드(.card)는 폰트·줄간격을 촘촘히 해 한 화면에 들어오게
+.card > .card-body { font-size: .9rem; }
+.card > .card-body p { line-height: 1.42; margin-bottom: .5rem; }
+.card > .card-body p:last-child { margin-bottom: 0; }
 
 // 네비게이션 바 살짝 다듬기
 .navbar { border-bottom: 1px solid rgba(0,0,0,0.06); }
 
 // 표를 더 깔끔하게
-table { font-size: 0.9rem; }
+table { font-size: 0.88rem; }
 thead th { border-bottom: 2px solid #dfe3e8 !important; }
+td, th { padding-top: .28rem !important; padding-bottom: .28rem !important; }

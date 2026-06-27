@@ -71,15 +71,9 @@ worst_dd  <- change %>% arrange(desc(drawdown)) %>% slice(1)
 shock_set <- change %>% arrange(desc(drawdown)) %>% head(6) %>% pull(country)
 ```
 
-```{=html}
-<style>
-.bslib-value-box .value-box-value { font-weight: 700; }
-</style>
-```
-
 # 개요 {orientation="rows"}
 
-## Row {height="20%"}
+## Row {height="26%"}
 
 ```{r}
 #| content: valuebox
@@ -106,7 +100,7 @@ list(icon = "heartbreak-fill", color = "danger",
      value = sprintf("−%.1f년", worst_dd$drawdown))
 ```
 
-## Row {height="80%"}
+## Row {height="74%"}
 
 ### Column {width="66%"}
 
