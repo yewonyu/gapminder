@@ -1,0 +1,56 @@
+---
+title: "gapminder 탐색적 분석(EDA)"
+lang: ko
+format:
+  html:
+    theme: cosmo
+    toc: false
+    embed-resources: true
+execute:
+  echo: false
+---
+
+1952–2007년 142개국의 **기대수명·소득·인구** 데이터를 탐색한 프로젝트입니다.
+R + Quarto로 작성했으며, 모든 수치·그림은 원자료에서 직접 계산됩니다.
+
+## 📑 산출물
+
+- [**상세 EDA 보고서**](eda_report.html) — 무결성 점검 → 분포 → 추세/격차 → 대륙 비교 → 소득·수명 관계 → 순위 → 후퇴 분석
+- [**EDA 대시보드**](eda_dashboard.html) — 핵심 지표 · 가중 vs 비가중 · 소득 ↔ 수명 (3개 탭)
+
+## 🔑 핵심 발견
+
+```{r}
+#| output: asis
+source("code/_common.R")
+df <- load_gapminder()
+trend <- df |> dplyr::group_by(year) |>
+  dplyr::summarise(w = weighted.mean(lifeExp, pop), .groups = "drop")
+latest <- df |> dplyr::filter(year == max(year))
+cat(sprintf("- 전세계 기대수명(인구가중): **%.1f세(1952) → %.1f세(2007), +%.1f년**\n",
+            trend$w[1], tail(trend$w, 1), tail(trend$w, 1) - trend$w[1]))
+cat(sprintf("- 2007년 최장수–최단명 국가 격차: **%.0f년** (%s vs %s)\n",
+            max(latest$lifeExp) - min(latest$lifeExp),
+            latest$country[which.max(latest$lifeExp)],
+            latest$country[which.min(latest$lifeExp)]))
+cat("- 소득(log GDP)–기대수명 상관 ≈ **0.81**, 단 고소득 구간 수확 체감\n")
+cat("- 국가 간 격차는 **U자형**: 1980년대 후반까지 수렴 후 HIV/AIDS·체제전환으로 재발산\n")
+```
+
+## 🗂️ 프로젝트 구조
+
+```
+gapminder/
+├─ _quarto.yml          Quarto 프로젝트 설정 (output → docs/)
+├─ index.qmd            이 페이지
+├─ eda_report.qmd       상세 보고서
+├─ eda_dashboard.qmd    대시보드
+├─ code/               R 코드 (_common.R · eda.R · clean.R)
+├─ data/               원자료 (gapminder[_clean].csv)
+├─ figures/            eda.R 생성 그림
+└─ docs/               렌더 산출물 (GitHub Pages 게시 대상)
+```
+
+::: {.callout-note appearance="simple"}
+GitHub: [yewonyu/gapminder](https://github.com/yewonyu/gapminder)
+:::

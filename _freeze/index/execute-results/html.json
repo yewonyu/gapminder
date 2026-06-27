@@ -1,0 +1,15 @@
+{
+  "hash": "995c45568fbe99c4d46e877b266bdaad",
+  "result": {
+    "engine": "knitr",
+    "markdown": "---\ntitle: \"gapminder 탐색적 분석(EDA)\"\nlang: ko\nformat:\n  html:\n    theme: cosmo\n    toc: false\n    embed-resources: true\nexecute:\n  echo: false\n---\n\n\n1952–2007년 142개국의 **기대수명·소득·인구** 데이터를 탐색한 프로젝트입니다.\nR + Quarto로 작성했으며, 모든 수치·그림은 원자료에서 직접 계산됩니다.\n\n## 📑 산출물\n\n- [**상세 EDA 보고서**](eda_report.html) — 무결성 점검 → 분포 → 추세/격차 → 대륙 비교 → 소득·수명 관계 → 순위 → 후퇴 분석\n- [**EDA 대시보드**](eda_dashboard.html) — 핵심 지표 · 가중 vs 비가중 · 소득 ↔ 수명 (3개 탭)\n\n## 🔑 핵심 발견\n\n\n- 전세계 기대수명(인구가중): **48.9세(1952) → 68.9세(2007), +20.0년**\n- 2007년 최장수–최단명 국가 격차: **43년** (Japan vs Swaziland)\n- 소득(log GDP)–기대수명 상관 ≈ **0.81**, 단 고소득 구간 수확 체감\n- 국가 간 격차는 **U자형**: 1980년대 후반까지 수렴 후 HIV/AIDS·체제전환으로 재발산\n\n\n## 🗂️ 프로젝트 구조\n\n```\ngapminder/\n├─ _quarto.yml          Quarto 프로젝트 설정 (output → docs/)\n├─ index.qmd            이 페이지\n├─ eda_report.qmd       상세 보고서\n├─ eda_dashboard.qmd    대시보드\n├─ code/               R 코드 (_common.R · eda.R · clean.R)\n├─ data/               원자료 (gapminder[_clean].csv)\n├─ figures/            eda.R 생성 그림\n└─ docs/               렌더 산출물 (GitHub Pages 게시 대상)\n```\n\n::: {.callout-note appearance=\"simple\"}\nGitHub: [yewonyu/gapminder](https://github.com/yewonyu/gapminder)\n:::",
+    "supporting": [],
+    "filters": [
+      "rmarkdown/pagebreak.lua"
+    ],
+    "includes": {},
+    "engineDependencies": {},
+    "preserve": {},
+    "postProcess": true
+  }
+}

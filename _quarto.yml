@@ -3,6 +3,7 @@ project:
   output-dir: docs          # 렌더 산출물(HTML)은 docs/ 에 저장
   execute-dir: project      # 모든 청크를 프로젝트 루트 기준으로 실행 (data/, code/, figures/)
   render:
+    - index.qmd             # 랜딩 페이지
     - eda_report.qmd        # 상세 EDA 보고서
     - eda_dashboard.qmd     # EDA 대시보드
 
