@@ -1,0 +1,18 @@
+project:
+  type: default
+  output-dir: docs          # 렌더 산출물(HTML)은 docs/ 에 저장
+  execute-dir: project      # 모든 청크를 프로젝트 루트 기준으로 실행 (data/, code/, figures/)
+  render:
+    - eda_report.qmd        # 상세 EDA 보고서
+    - eda_dashboard.qmd     # EDA 대시보드
+
+# 모든 문서 공통 실행 옵션
+execute:
+  warning: false
+  message: false
+  freeze: auto              # 변경 없을 때 재계산 생략 (_freeze/ 캐시)
+
+# 공통 메타데이터
+lang: ko
+author: "yewonyu"
+date: "2026-06-27"

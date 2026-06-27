@@ -1,0 +1,346 @@
+---
+title: "gapminder 탐색적 분석(EDA) 보고서"
+author: "yewonyu"
+date: "2026-06-27"
+lang: ko
+format:
+  html:
+    theme: cosmo
+    toc: true
+    toc-depth: 3
+    toc-title: "목차"
+    number-sections: true
+    code-fold: true
+    code-tools: true
+    code-summary: "코드 보기"
+    fig-width: 8
+    fig-height: 5
+    fig-dpi: 120
+    df-print: kable
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+  echo: true
+knitr:
+  opts_chunk:
+    comment: "#>"
+---
+
+```{r setup}
+#| include: false
+# 공통 설정(라이브러리·헬퍼·데이터 로더)은 code/_common.R 에서 가져온다.
+library(knitr)
+source("code/_common.R")
+
+input_path  <- find_data()
+df          <- load_gapminder()
+latest_year <- max(df$year)
+first_year  <- min(df$year)
+latest      <- df %>% filter(year == latest_year)
+```
+
+> **분석 대상**: `r basename(input_path)` (`r format(nrow(df), big.mark=",")`행, `r dplyr::n_distinct(df$country)`개국 × `r dplyr::n_distinct(df$year)`개 연도) ·
+> **스크립트**: `eda.R` / 본 문서 `eda_report.qmd` ·
+> **그림**: 본 문서 내 인라인 생성
+>
+> 본 보고서의 **모든 수치·표·그림은 원자료에서 직접 계산**된다(Quarto 재현 가능 문서). 왜도·첨도·지니·잔차는 외부 패키지 없이 구현했다.
+
+---
+
+# 데이터 무결성 점검
+
+분포·관계 분석에 앞서 데이터 품질을 먼저 확인한다. 결론의 신뢰도는 입력 품질을 넘을 수 없다.
+
+```{r integrity}
+expected_cols <- c("country","year","pop","continent","lifeExp","gdpPercap")
+years_all   <- sort(unique(df$year))
+per_country <- df %>% count(country, name = "n_years")
+balanced    <- all(per_country$n_years == length(years_all))
+expected_conts <- c("Africa","Americas","Asia","Europe","Oceania")
+bad_conts <- setdiff(levels(df$continent), expected_conts)
+
+integrity <- data.frame(
+  점검항목 = c("필수 컬럼", "행 수 / 컬럼", "결측치(NA)",
+               "(국가,연도) 키 중복", "값 범위 위반",
+               "대륙 라벨", "연도 집합", "국가 수", "패널 균형성"),
+  결과 = c(
+    if (length(setdiff(expected_cols, names(df)))==0) "모두 존재" else "누락 있음",
+    sprintf("%s행 / %d열", format(nrow(df), big.mark=","), ncol(df)),
+    sprintf("%d건", sum(is.na(df))),
+    sprintf("%d건", sum(duplicated(df[, c("country","year")]))),
+    sprintf("lifeExp %d · gdp %d · pop %d 건",
+            sum(df$lifeExp<=0 | df$lifeExp>120, na.rm=TRUE),
+            sum(df$gdpPercap<=0, na.rm=TRUE),
+            sum(df$pop<=0, na.rm=TRUE)),
+    if (length(bad_conts)==0) paste(levels(df$continent), collapse=", ") else paste("이상:", paste(bad_conts, collapse=", ")),
+    sprintf("%d–%d, %d개", min(years_all), max(years_all), length(years_all)),
+    sprintf("%d개국", n_distinct(df$country)),
+    if (balanced) "균형 패널 (모든 국가가 동일 연도 보유)" else "불균형"
+  )
+)
+kable(integrity, caption = "데이터 무결성 점검 결과")
+```
+
+::: {.callout-warning}
+## 데이터 함정: 따옴표 없는 CSV의 열 밀림
+원본 `data/gapminder.csv`는 따옴표가 없어 `Korea, Rep.`·`Congo, Dem. Rep.`·`Yemen, Rep.`처럼 **쉼표가 포함된 국가명이 열을 밀어** 대륙 라벨이 깨질 수 있다. 따옴표 처리된 `gapminder_clean.csv`를 사용하면 대륙 라벨이 정확히 5종으로 떨어진다(위 점검에서 확인). 본 문서는 매 렌더 시 라벨 타당성을 자동 검사한다.
+:::
+
+# 주요 변수 분포
+
+```{r dist-table}
+num_vars <- c("lifeExp","gdpPercap","pop")
+dist_tbl <- do.call(rbind, lapply(num_vars, function(v) {
+  x <- df[[v]]; q <- quantile(x, c(0,.25,.5,.75,1), na.rm = TRUE)
+  data.frame(변수=v, 평균=mean(x), 표준편차=sd(x),
+             최소=q[[1]], Q1=q[[2]], 중앙값=q[[3]], Q3=q[[4]], 최대=q[[5]],
+             왜도=skewness(x), 초과첨도=kurtosis_excess(x))
+}))
+kable(dist_tbl, digits = 2, format.args = list(big.mark=","),
+      caption = "주요 변수 요약 통계 (전체 1,704 관측)")
+```
+
+- **gdpPercap·pop**: 왜도가 크게 양(+)이고 평균이 중앙값을 크게 상회 → 강한 **우편향**. 분석·시각화 시 **로그 변환** 필수.
+- **lifeExp**: 흔히 "대칭"으로 단순화되지만 실제로는 **약한 좌편향(왜도 ≈ −0.25)**, **초과첨도 ≈ −1.1(평평/이봉 경향)**. 이는 1952년과 2007년을 **한데 모은** 탓이며, 통합 히스토그램의 두 봉우리(과거 저수명군 vs 현재 고수명군)는 연도를 분리하면 사라진다.
+
+```{r}
+#| label: fig-hist-life
+#| fig-cap: "기대수명 분포 — 전체 연도 통합(시대 혼합으로 이봉 경향)"
+ggplot(df, aes(lifeExp)) +
+  geom_histogram(bins = 30, fill = "#2c7fb8", color = "white") +
+  labs(x = "기대수명", y = "빈도") + theme_minimal()
+```
+
+```{r}
+#| label: fig-hist-gdp
+#| fig-cap: "1인당 GDP 분포 (로그 스케일)"
+ggplot(df, aes(gdpPercap)) +
+  geom_histogram(bins = 30, fill = "#31a354", color = "white") +
+  scale_x_log10(labels = scales::comma) +
+  labs(x = "gdpPercap (log10)", y = "빈도") + theme_minimal()
+```
+
+# 시간에 따른 추세 — 중심 + 격차
+
+가중평균만 보면 "중심"은 보이지만 "격차"는 보이지 않는다. 인구 가중/비가중 평균과 함께 국가 간 **표준편차·지니계수**를 본다.
+
+```{r trend}
+trend <- df %>%
+  group_by(year) %>%
+  summarise(
+    가중평균수명 = weighted.mean(lifeExp, pop),
+    비가중평균수명 = mean(lifeExp),
+    가중1인당GDP = weighted.mean(gdpPercap, pop),
+    총인구_억 = sum(pop)/1e8,
+    수명SD = sd(lifeExp),
+    수명지니 = gini(lifeExp),
+    GDP지니 = gini(gdpPercap),
+    .groups = "drop"
+  )
+kable(trend, digits = 2, format.args = list(big.mark=","),
+      caption = "연도별 추세: 중심(가중평균)과 격차(SD·지니)")
+```
+
+```{r trend-notes}
+#| echo: false
+#| results: asis
+min_sd_year <- trend$year[which.min(trend$수명SD)]
+cat(sprintf(
+"- 55년간 가중평균 기대수명 **%+.1f년**(%.1f → %.1f세), 가중 1인당 GDP **약 %.1f배**.\n",
+trend$가중평균수명[1], trend$가중평균수명[1], tail(trend$가중평균수명,1),
+tail(trend$가중1인당GDP,1)/trend$가중1인당GDP[1]))
+cat(sprintf(
+"- **격차는 U자형**: 국가 간 수명 SD가 %.1f(%d) → 최저 **%.1f(%d)** → %.1f(%d)로, %d년대까지 수렴한 뒤 HIV/AIDS·체제전환으로 **재발산**. \"꾸준한 수렴\" 서사는 틀렸다.\n",
+trend$수명SD[1], first_year, min(trend$수명SD), min_sd_year,
+tail(trend$수명SD,1), latest_year, (min_sd_year %/% 10) * 10))
+```
+
+```{r}
+#| label: fig-box-year
+#| fig-cap: "연도별 기대수명 분포 변화"
+ggplot(df, aes(factor(year), lifeExp)) +
+  geom_boxplot(fill = "#a6bddb", outlier.size = 0.6) +
+  labs(x = "연도", y = "기대수명") + theme_minimal()
+```
+
+```{r}
+#| label: fig-dispersion
+#| fig-cap: "국가 간 기대수명 격차(표준편차)의 시간 변화 — 하락=수렴, 상승=발산"
+ggplot(trend, aes(year, 수명SD)) +
+  geom_line(color = "#d95f0e", linewidth = 1) + geom_point(color = "#d95f0e") +
+  labs(x = "연도", y = "기대수명 표준편차") + theme_minimal()
+```
+
+# 대륙별 비교 (`r latest_year`년)
+
+```{r continent}
+by_cont <- latest %>%
+  group_by(continent) %>%
+  summarise(국가수=n(), 수명중앙값=median(lifeExp), 수명IQR=IQR(lifeExp),
+            GDP중앙값=median(gdpPercap), 총인구_억=sum(pop)/1e8, .groups="drop") %>%
+  arrange(desc(수명중앙값))
+kable(by_cont, digits = 2, format.args = list(big.mark=","),
+      caption = sprintf("대륙별 요약 (%d년)", latest_year))
+```
+
+- 아프리카가 기대수명·소득 모두에서 큰 격차로 최하위.
+- **중앙값만으로는 부족하다**: IQR을 보면 **아프리카·아시아는 대륙 내부 이질성이 매우 크다**(약 10–12 vs 유럽·아메리카 약 5). 두 대륙은 하나로 묶어 말하기 어렵다.
+
+```{r}
+#| label: fig-box-cont
+#| fig-cap: "대륙별 기대수명 분포 (개별 국가 점 포함)"
+ggplot(latest, aes(reorder(continent, lifeExp, median), lifeExp, fill = continent)) +
+  geom_boxplot(show.legend = FALSE) +
+  geom_jitter(width = 0.15, size = 0.6, alpha = 0.4) +
+  coord_flip() + labs(x = "대륙", y = "기대수명") + theme_minimal()
+```
+
+```{r}
+#| label: fig-line-cont
+#| fig-cap: "대륙별 기대수명 추세 (인구 가중)"
+df %>% group_by(continent, year) %>%
+  summarise(lifeExp = weighted.mean(lifeExp, pop), .groups="drop") %>%
+  ggplot(aes(year, lifeExp, color = continent)) +
+  geom_line(linewidth = 1) + geom_point(size = 1.5) +
+  labs(x = "연도", y = "기대수명", color = "대륙") + theme_minimal()
+```
+
+# 1인당 GDP와 기대수명의 관계
+
+통합(pooled) 상관은 "국가 간 차이"와 "시간에 따른 동반 상승"을 **뒤섞는다**. 단일 연도 단면 상관과 비교해 효과를 분리한다.
+
+```{r corr}
+corr_tbl <- data.frame(
+  측정방식 = c("통합 · 원자료", "통합 · log10(GDP)",
+               sprintf("%d년 단면 · log10(GDP)", latest_year)),
+  상관계수 = c(cor(df$gdpPercap, df$lifeExp),
+               cor(log10(df$gdpPercap), df$lifeExp),
+               cor(log10(latest$gdpPercap), latest$lifeExp))
+)
+kable(corr_tbl, digits = 3, caption = "GDP–기대수명 상관")
+
+corr_by_year <- df %>% group_by(year) %>%
+  summarise(`log GDP 단면 상관` = cor(log10(gdpPercap), lifeExp), .groups="drop")
+kable(corr_by_year, digits = 3, caption = "연도별 단면 상관(log10 GDP) — 관계 강도의 시대 변화")
+```
+
+- 로그 변환 시 선형성이 뚜렷해진다(0.58 → 0.81). 단, **연도별 단면 상관은 0.75–0.87 사이를 오간다** — 관계의 강도 자체가 시대에 따라 달라지므로 "하나의 상수"로 말하면 안 된다.
+- 고소득 구간에서 기대수명 증가가 둔화되는 **포화(수확 체감)** 가 로그 스케일에서도 보인다.
+
+```{r regression}
+fit <- lm(lifeExp ~ log10(gdpPercap), data = latest)
+latest$resid <- resid(fit)
+neg <- latest %>% arrange(resid) %>%
+  transmute(국가=country, 대륙=continent, 기대수명=round(lifeExp,1),
+            `1인당GDP`=round(gdpPercap), 잔차=round(resid,1)) %>% head(5)
+pos <- latest %>% arrange(desc(resid)) %>%
+  transmute(국가=country, 대륙=continent, 기대수명=round(lifeExp,1),
+            `1인당GDP`=round(gdpPercap), 잔차=round(resid,1)) %>% head(5)
+```
+
+`r latest_year`년 로그-선형 회귀 `lifeExp ~ log10(gdpPercap)`: **R² = `r round(summary(fit)$r.squared, 3)`**, 기울기 ≈ `r round(coef(fit)[2],1)`(GDP 10배당 +`r round(coef(fit)[2],1)`년). 회귀선에서 벗어난 국가는 "돈으로 설명 안 되는" 사례다.
+
+```{r resid-tables}
+kable(neg, format.args = list(big.mark=","),
+      caption = "소득 대비 수명이 낮은 국가(음의 잔차) — 2007년엔 HIV/AIDS 남부 아프리카가 지배적")
+kable(pos, format.args = list(big.mark=","),
+      caption = "소득 대비 수명이 높은 국가(양의 잔차) — 저소득 고성과")
+```
+
+```{r}
+#| label: fig-scatter
+#| fig-cap: "1인당 GDP vs 기대수명 — 점선=로그-선형 적합, 라벨=추세 최대 이탈국"
+#| fig-width: 9
+#| fig-height: 6
+outliers <- bind_rows(head(latest %>% arrange(resid), 3),
+                      head(latest %>% arrange(desc(resid)), 3))
+ggplot(latest, aes(gdpPercap, lifeExp)) +
+  geom_point(aes(size = pop, color = continent), alpha = 0.7) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
+              color = "grey30", linetype = "dashed") +
+  geom_text(data = outliers, aes(label = country), size = 3, vjust = -1, check_overlap = TRUE) +
+  scale_x_log10(labels = scales::comma) +
+  scale_size(range = c(1, 12), guide = "none") +
+  labs(x = "gdpPercap (log10)", y = "기대수명", color = "대륙") + theme_minimal()
+```
+
+# 기대수명 순위 (`r latest_year`년)
+
+```{r ranks}
+top10 <- latest %>% arrange(desc(lifeExp)) %>%
+  transmute(국가=country, 대륙=continent, 기대수명=round(lifeExp,2),
+            `1인당GDP`=round(gdpPercap)) %>% head(10)
+bot10 <- latest %>% arrange(lifeExp) %>%
+  transmute(국가=country, 대륙=continent, 기대수명=round(lifeExp,2),
+            `1인당GDP`=round(gdpPercap)) %>% head(10)
+kable(top10, format.args = list(big.mark=","), caption = "상위 10개국")
+kable(bot10, format.args = list(big.mark=","), caption = "하위 10개국")
+```
+
+- 상위권은 유럽·동아시아 선진국, 하위권은 대부분 사하라 이남 아프리카.
+- 하위권 안에서도 **Swaziland·Angola는 소득이 4,500달러 이상**인데 수명이 최하위 — 소득만으로 설명되지 않는 보건 위기(HIV/AIDS·분쟁).
+
+# 변화 — 개선폭 **그리고** 후퇴/역전 (`r first_year` → `r latest_year`)
+
+::: {.callout-note}
+기존 분석은 "개선 상위"만 보았다. 균형 잡힌 EDA는 같은 비중으로 **악화/후퇴**도 봐야 한다.
+:::
+
+```{r change}
+change <- df %>%
+  group_by(country, continent) %>%
+  summarise(
+    le_start = lifeExp[which.min(year)],
+    le_end   = lifeExp[which.max(year)],
+    le_peak  = max(lifeExp),
+    gain     = lifeExp[which.max(year)] - lifeExp[which.min(year)],
+    drawdown = max(lifeExp) - lifeExp[which.max(year)],
+    .groups = "drop"
+  )
+
+gain10 <- change %>% arrange(desc(gain)) %>%
+  transmute(국가=country, 대륙=continent, `1952`=round(le_start,2),
+            `2007`=round(le_end,2), 증가폭=round(gain,2)) %>% head(10)
+declines <- change %>% filter(gain < 0) %>% arrange(gain) %>%
+  transmute(국가=country, 대륙=continent, `1952`=round(le_start,1),
+            `2007`=round(le_end,1), 증가폭=round(gain,1))
+dd10 <- change %>% arrange(desc(drawdown)) %>%
+  transmute(국가=country, 대륙=continent, 정점수명=round(le_peak,1),
+            `2007`=round(le_end,1), 하락폭=round(drawdown,1)) %>% head(10)
+
+kable(gain10, caption = "기대수명 개선폭 상위 10개국")
+kable(declines, caption = "기간 내 순(純)후퇴 국가 (2007년 < 1952년)")
+kable(dd10, caption = "정점 대비 최대 후퇴(drawdown) 상위 10 — 중간의 붕괴 포착")
+```
+
+- 순후퇴는 단 2개국이지만, **drawdown으로 보면 남부 아프리카 전역의 보건 붕괴(HIV/AIDS)** 가 뚜렷하다(보츠와나·남아공은 한때 60세 초과 → 50세 안팎으로 추락, 소득은 오히려 높음 → 잔차 분석과 동일 집단).
+- 시작·끝 두 점만 비교하면 이 위기를 **완전히 놓친다.** 이것이 개선폭만 보던 기존 분석의 가장 큰 사각지대였다.
+
+```{r}
+#| label: fig-reversals
+#| fig-cap: "기대수명 후퇴가 컸던 국가들의 궤적 — HIV/AIDS·분쟁의 흔적"
+#| fig-width: 9
+#| fig-height: 5.5
+shock <- change %>% arrange(desc(drawdown)) %>% head(6) %>% pull(country)
+df %>% filter(country %in% shock) %>%
+  ggplot(aes(year, lifeExp, color = country)) +
+  geom_line(linewidth = 1) + geom_point(size = 1.5) +
+  labs(x = "연도", y = "기대수명", color = "국가") + theme_minimal()
+```
+
+# 결론
+
+1. **데이터 품질**: 균형 패널(142국 × 12년), 결측·중복·범위 위반 0건. 단, 원본 비(非)따옴표 CSV는 쉼표 국가명으로 열 밀림 위험 → `_clean.csv` 사용·라벨 검증 필수.
+2. **전반적 향상**: 1952–2007년 가중평균 기대수명 +20년, 소득 약 3.2배. 그러나 **수렴은 단조롭지 않고 U자형** — 1980년대 후반 최대 수렴 후 1990년대 재발산.
+3. **소득–수명 연관**: log10(GDP)와 강한 양의 상관(통합·단면 모두 ≈ 0.81)이나 **통합 상관은 시대·국가 효과의 혼합**이며, 연도별로 0.75–0.87을 오간다. 고소득 구간에서 수확 체감.
+4. **돈으로 설명 안 되는 사례**: 남부 아프리카(스와질란드·보츠와나·남아공)는 중상위 소득에도 HIV/AIDS로 수명 최하위(큰 음의 잔차); 베트남·니카라과 등은 저소득에도 우수한 보건 성과(큰 양의 잔차).
+5. **개선과 후퇴의 공존**: 오만·베트남·한국(+31년)이 빠르게 추격한 한편, **남부 아프리카는 정점 대비 12–19년 후퇴**했다. 개선만 보는 분석은 이 위기를 놓친다.
+
+---
+
+```{r session}
+#| code-fold: true
+#| code-summary: "세션 정보 (재현성)"
+sessionInfo()
+```
