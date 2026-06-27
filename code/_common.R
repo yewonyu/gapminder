@@ -49,7 +49,26 @@ load_gapminder <- function() {
   df
 }
 
-# ---- 공유 색상 팔레트 -------------------------------------------------------
-cont_pal <- c(Africa = "#e41a1c", Americas = "#377eb8", Asia = "#4daf4a",
-              Europe = "#984ea3", Oceania = "#ff7f00")  # 대륙별
-wu_col   <- c("비가중" = "#e41a1c", "인구가중" = "#1fb3c9")  # 가중 vs 비가중
+# ---- 공유 색상 팔레트 (Tableau 10 계열 — 전문적·색약 친화) ------------------
+cont_pal <- c(Africa = "#E15759", Americas = "#4E79A7", Asia = "#59A14F",
+              Europe = "#B07AA1", Oceania = "#F28E2B")    # 대륙별
+wu_col   <- c("비가중" = "#FC7D0B", "인구가중" = "#1170AA")  # 가중 vs 비가중
+
+# ---- 공유 ggplot 테마 -------------------------------------------------------
+# 일관된 시각 언어: 굵은 제목 좌측 정렬, 옅은 격자, 하단 범례, 출처 캡션.
+theme_gap <- function(base_size = 13) {
+  ggplot2::theme_minimal(base_size = base_size) +
+    ggplot2::theme(
+      plot.title          = ggplot2::element_text(face = "bold", size = ggplot2::rel(1.05)),
+      plot.subtitle       = ggplot2::element_text(color = "grey35", size = ggplot2::rel(0.92),
+                                                  margin = ggplot2::margin(b = 8)),
+      plot.caption        = ggplot2::element_text(color = "grey60", size = ggplot2::rel(0.72)),
+      plot.title.position = "plot",
+      axis.title          = ggplot2::element_text(color = "grey35"),
+      panel.grid.minor    = ggplot2::element_blank(),
+      panel.grid.major    = ggplot2::element_line(color = "grey92"),
+      legend.position     = "bottom",
+      legend.title        = ggplot2::element_text(color = "grey35")
+    )
+}
+GAP_CAPTION <- "출처: Gapminder · 142개국 · 1952–2007"

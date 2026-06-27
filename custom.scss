@@ -1,0 +1,30 @@
+/*-- scss:defaults --*/
+// 전문적인 타이포그래피·색상
+$font-family-sans-serif: "Inter", "Pretendard", "Segoe UI", "Malgun Gothic", sans-serif !default;
+$primary: #1170AA !default;
+
+/*-- scss:rules --*/
+// 카드 헤더: 인사이트 제목을 또렷하게
+.card .card-header {
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+  background-color: #fbfbfc;
+  border-bottom: 1px solid #eceef1;
+}
+
+// 값 박스: 숫자 강조, 라벨 가독성
+.bslib-value-box {
+  .value-box-value { font-weight: 700; font-size: clamp(1.6rem, 2.4vw, 2.4rem); }
+  .value-box-title { opacity: 0.92; font-weight: 500; }
+}
+
+// 본문 카드(callout형 .card)의 여백·줄간격
+.card > .card-body p { line-height: 1.55; }
+
+// 네비게이션 바 살짝 다듬기
+.navbar { border-bottom: 1px solid rgba(0,0,0,0.06); }
+
+// 표를 더 깔끔하게
+table { font-size: 0.9rem; }
+thead th { border-bottom: 2px solid #dfe3e8 !important; }

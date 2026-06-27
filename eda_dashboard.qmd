@@ -1,11 +1,17 @@
 ---
-title: "gapminder EDA 대시보드"
+title: "Gapminder · 반세기의 생명과 소득"
 author: "yewonyu"
 date: "2026-06-27"
 lang: ko
 format:
   dashboard:
-    theme: cosmo
+    theme: [cosmo, custom.scss]
+    nav-buttons:
+      - icon: file-earmark-text
+        href: eda_report.html
+        text: 상세 보고서
+      - icon: github
+        href: https://github.com/yewonyu/gapminder
     embed-resources: true
 execute:
   warning: false
@@ -15,189 +21,223 @@ execute:
 
 ```{r setup}
 #| include: false
-# 공통 설정(라이브러리·헬퍼·데이터 로더·색상 팔레트)은 code/_common.R 에서 가져온다.
 library(knitr)
+library(ggplot2)
+library(dplyr)
+library(plotly)
+library(ggrepel)
 source("code/_common.R")
 
 df <- load_gapminder()
-latest_year <- max(df$year); first_year <- min(df$year)
-latest <- df %>% filter(year == latest_year)
+yr_max <- max(df$year); yr_min <- min(df$year)
+latest <- df %>% filter(year == yr_max)
 
-# ----- 핵심 지표 -----
+# ---- 핵심 지표 -----
 trend <- df %>% group_by(year) %>%
   summarise(인구가중 = weighted.mean(lifeExp, pop),
             비가중   = mean(lifeExp),
             gdp_w    = weighted.mean(gdpPercap, pop),
-            gdp_u    = mean(gdpPercap), .groups = "drop")
-le_now  <- tail(trend$인구가중, 1)
-le_gain <- tail(trend$인구가중, 1) - trend$인구가중[1]
-gap_max_min <- max(latest$lifeExp) - min(latest$lifeExp)   # 최장수-최단명 격차
+            gdp_u    = mean(gdpPercap),
+            SD = sd(lifeExp), CV = sd(lifeExp)/mean(lifeExp),
+            .groups = "drop")
+le_now   <- tail(trend$인구가중, 1)
+le_gain  <- tail(trend$인구가중, 1) - trend$인구가중[1]
+gdp_mult <- tail(trend$gdp_w, 1) / trend$gdp_w[1]
+gap_span <- max(latest$lifeExp) - min(latest$lifeExp)
+top_country <- latest$country[which.max(latest$lifeExp)]
+bot_country <- latest$country[which.min(latest$lifeExp)]
+min_cv_year <- trend$year[which.min(trend$CV)]
+cor07 <- cor(log10(latest$gdpPercap), latest$lifeExp)
 
-# ----- 국가 간 격차(SD·CV·IQR) -----
-gap_tbl <- df %>% group_by(year) %>%
-  summarise(SD = sd(lifeExp), CV = sd(lifeExp)/mean(lifeExp),
-            IQR = IQR(lifeExp), .groups = "drop")
-min_cv_year <- gap_tbl$year[which.min(gap_tbl$CV)]
-
-# ----- 가중 vs 비가중 long -----
+# ---- 가중 vs 비가중 long -----
 le_long <- rbind(
   data.frame(year = trend$year, 유형 = "비가중",  값 = trend$비가중),
   data.frame(year = trend$year, 유형 = "인구가중", 값 = trend$인구가중))
 le_long$유형 <- factor(le_long$유형, levels = c("비가중","인구가중"))
-gdp_long <- rbind(
-  data.frame(year = trend$year, 유형 = "비가중",  값 = trend$gdp_u),
-  data.frame(year = trend$year, 유형 = "인구가중", 값 = trend$gdp_w))
-gdp_long$유형 <- factor(gdp_long$유형, levels = c("비가중","인구가중"))
-# wu_col(가중/비가중), cont_pal(대륙) 색상은 code/_common.R 에서 제공
 
-# ----- 소득 ↔ 수명 -----
+# ---- 회귀 잔차(소득으로 설명 안 되는 나라) -----
 fit <- lm(lifeExp ~ log10(gdpPercap), data = latest)
 latest$resid <- resid(fit)
+r2 <- summary(fit)$r.squared
 corr_by_year <- df %>% group_by(year) %>%
-  summarise(`log10 GDP 단면상관` = cor(log10(gdpPercap), lifeExp), .groups = "drop")
+  summarise(상관 = cor(log10(gdpPercap), lifeExp), .groups = "drop")
+
+# ---- 정점 대비 후퇴(drawdown) -----
+change <- df %>% group_by(country, continent) %>%
+  summarise(le_end = lifeExp[which.max(year)], le_peak = max(lifeExp),
+            gain = lifeExp[which.max(year)] - lifeExp[which.min(year)],
+            drawdown = max(lifeExp) - lifeExp[which.max(year)], .groups = "drop")
+worst_dd  <- change %>% arrange(desc(drawdown)) %>% slice(1)
+shock_set <- change %>% arrange(desc(drawdown)) %>% head(6) %>% pull(country)
 ```
 
-# 핵심 지표
+```{=html}
+<style>
+.bslib-value-box .value-box-value { font-weight: 700; }
+</style>
+```
 
-## Row {height="22%"}
+# 개요 {orientation="rows"}
+
+## Row {height="20%"}
 
 ```{r}
 #| content: valuebox
-#| title: "전세계 기대수명 2007 (1인 기준, 인구가중)"
-list(icon = "heart-pulse-fill", color = "success",
-     value = sprintf("%.1f세", le_now))
+#| title: "세계 기대수명 (2007, 인구가중)"
+list(icon = "heart-pulse-fill", color = "success", value = sprintf("%.1f세", le_now))
 ```
 
 ```{r}
 #| content: valuebox
-#| title: "지난 55년간 기대수명 증가 (1952→2007)"
-list(icon = "graph-up-arrow", color = "primary",
-     value = sprintf("+%.1f년", le_gain))
+#| title: "55년간 기대수명 증가"
+list(icon = "graph-up-arrow", color = "primary", value = sprintf("+%.1f년", le_gain))
 ```
 
 ```{r}
 #| content: valuebox
 #| title: "최장수–최단명 국가 격차 (2007)"
-list(icon = "rulers", color = "danger",
-     value = sprintf("%.0f년", gap_max_min))
-```
-
-## Row {height="78%"}
-
-### Column {width="55%"}
-
-```{r}
-#| title: "전세계 기대수명 추세 (가중 vs 비가중)"
-ggplot(le_long, aes(year, 값, color = 유형)) +
-  geom_line(linewidth = 1.1) + geom_point(size = 1.8) +
-  scale_color_manual(values = wu_col) +
-  labs(x = NULL, y = "기대수명", color = "유형") +
-  theme_minimal(base_size = 13) + theme(legend.position = "right")
-```
-
-### Column {width="45%"}
-
-```{r}
-#| title: "국가 간 격차(CV) — 수렴은 단조롭지 않다"
-gap_tbl %>%
-  transmute(연도 = year, SD = round(SD, 2),
-            CV = round(CV, 3), IQR = round(IQR, 2)) %>%
-  kable(align = "r")
-```
-
-::: {.callout-note}
-## 노트
-국가 간 변동계수 **CV가 0.249(1952) → 최저 0.167(`r min_cv_year`) → 0.180(2007)**.
-전반적으로 수렴했으나 1980년대 후반 이후 HIV/AIDS·체제전환으로 **재확대(발산)** — "꾸준한 수렴"은 사실이 아니다.
-:::
-
-# 가중 vs 비가중
-
-## Row
-
-```{r}
-#| title: "기대수명: 인구가중 vs 비가중"
-ggplot(le_long, aes(year, 값, color = 유형)) +
-  geom_line(linewidth = 1.1) + geom_point(size = 1.8) +
-  scale_color_manual(values = wu_col) +
-  labs(x = NULL, y = "기대수명", color = "유형") +
-  theme_minimal(base_size = 13)
+list(icon = "arrows-expand", color = "warning", value = sprintf("%.0f년", gap_span))
 ```
 
 ```{r}
-#| title: "1인당 GDP: 인구가중 vs 비가중"
-ggplot(gdp_long, aes(year, 값, color = 유형)) +
-  geom_line(linewidth = 1.1) + geom_point(size = 1.8) +
-  scale_color_manual(values = wu_col) +
-  scale_y_continuous(labels = scales::comma) +
-  labs(x = NULL, y = "1인당 GDP", color = "유형") +
-  theme_minimal(base_size = 13)
+#| content: valuebox
+#| title: "최대 기대수명 후퇴 (정점 대비)"
+list(icon = "heartbreak-fill", color = "danger",
+     value = sprintf("−%.1f년", worst_dd$drawdown))
 ```
 
-## Row
+## Row {height="80%"}
 
-### Column {width="60%"}
+### Column {width="66%"}
 
 ```{r}
-#| title: "대륙별 기대수명 추세 (인구 가중)"
-df %>% group_by(continent, year) %>%
-  summarise(lifeExp = weighted.mean(lifeExp, pop), .groups = "drop") %>%
-  ggplot(aes(year, lifeExp, color = continent)) +
-  geom_line(linewidth = 1.1) + geom_point(size = 1.6) +
+#| title: "부유할수록 오래 살지만, 같은 소득에도 대륙 격차는 크다 — 2007년 (버블=인구)"
+g <- ggplot(latest,
+       aes(gdpPercap, lifeExp, size = pop, color = continent,
+           text = paste0("<b>", country, "</b>",
+                         "<br>기대수명: ", round(lifeExp, 1), "세",
+                         "<br>1인당 GDP: $", format(round(gdpPercap), big.mark = ","),
+                         "<br>인구: ", format(round(pop/1e6, 1), nsmall = 1), "M"))) +
+  geom_point(alpha = 0.75) +
+  scale_x_log10(labels = scales::label_dollar()) +
+  scale_size(range = c(2, 16), guide = "none") +
   scale_color_manual(values = cont_pal) +
-  labs(x = NULL, y = "기대수명", color = "대륙") +
-  theme_minimal(base_size = 13)
+  labs(x = "1인당 GDP (로그 스케일)", y = "기대수명 (세)", color = NULL) +
+  theme_gap()
+ggplotly(g, tooltip = "text") %>%
+  layout(legend = list(orientation = "h", x = 0, y = -0.15)) %>%
+  config(displayModeBar = FALSE)
 ```
 
-### Column {width="40%"}
+### Column {width="34%"}
 
-::: {.callout-tip}
-## 가중 vs 비가중, 무엇이 다른가
-- **인구가중 평균** = "평균적 *인간*"의 경험 (인구 많은 국가가 더 큰 비중)
-- **비가중 평균** = "평균적 *국가*" (룩셈부르크와 중국이 동등)
-- 1967년 이후 **인구가중 > 비가중** → 인구 대국(중국·인도)이 평균적 국가보다 빠르게 개선됨을 시사.
-- 단, 1962년에는 역전(가중 < 비가중) — 당시 중국 대약진 기근의 흔적.
+::: {.card title="한눈에 보는 4가지 사실"}
+**① 거대한 진보** — 1952→2007년 세계 기대수명은 인구가중 기준 **+`r round(le_gain,1)`년**(`r round(trend$인구가중[1],1)`→`r round(le_now,1)`세), 소득은 약 **`r round(gdp_mult,1)`배** 늘었다.
+
+**② 끈질긴 격차** — 2007년에도 최장수국(`r top_country`)과 최단명국(`r bot_country`)의 차이는 **`r round(gap_span)`년**에 달한다.
+
+**③ 소득≠수명** — 소득(log)과 기대수명의 상관은 **`r round(cor07,2)`**로 강하지만, 고소득 구간에선 수확이 체감하고 *돈으로 설명 안 되는* 나라들이 존재한다.
+
+**④ 후퇴의 그림자** — 일부 남부 아프리카 국가는 HIV/AIDS로 정점 대비 **최대 `r round(worst_dd$drawdown,1)`년**(`r worst_dd$country`) 후퇴했다. 진보는 보편적이지도, 되돌릴 수 없는 것도 아니다.
 :::
 
-# 소득 ↔ 수명
+# 반세기의 진보 {orientation="rows"}
 
-## Row {height="60%"}
-
-### Column {width="60%"}
+## Row
 
 ```{r}
-#| title: "1인당 GDP vs 기대수명 (2007, 로그 스케일)"
-out <- bind_rows(head(latest %>% arrange(resid), 3),
-                 head(latest %>% arrange(desc(resid)), 3))
-ggplot(latest, aes(gdpPercap, lifeExp)) +
-  geom_point(aes(size = pop, color = continent), alpha = 0.75) +
-  geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
-              color = "grey30", linetype = "dashed") +
-  geom_text(data = out, aes(label = country), size = 3, vjust = -1, check_overlap = TRUE) +
-  scale_x_log10(labels = scales::comma) + scale_color_manual(values = cont_pal) +
-  scale_size(range = c(1, 11), guide = "none") +
-  labs(x = "1인당 GDP (log10)", y = "기대수명", color = "대륙") +
-  theme_minimal(base_size = 12) + theme(legend.position = "bottom")
+#| title: "인구 대국이 세계 평균을 끌어올렸다 — 가중 vs 비가중 기대수명"
+lab_pts <- le_long %>% filter(year == yr_max)
+ggplot(le_long, aes(year, 값, color = 유형)) +
+  geom_line(linewidth = 1.2) + geom_point(size = 1.6) +
+  geom_text_repel(data = lab_pts, aes(label = 유형), nudge_x = 3, hjust = 0,
+                  direction = "y", segment.color = NA, fontface = "bold", size = 4) +
+  annotate("segment", x = 1962, xend = 1962, y = 50, yend = 53.4,
+           color = "grey55", linewidth = 0.4) +
+  annotate("text", x = 1962, y = 49.4, label = "중국 대약진 기근으로\n인구가중 일시 역전",
+           size = 3, color = "grey40", lineheight = 0.9) +
+  scale_color_manual(values = wu_col, guide = "none") +
+  scale_x_continuous(expand = expansion(mult = c(0.02, 0.16))) +
+  labs(x = NULL, y = "기대수명 (세)", caption = GAP_CAPTION) +
+  theme_gap()
 ```
 
-### Column {width="40%"}
+```{r}
+#| title: "수렴은 단조롭지 않았다 — 국가 간 격차(CV)의 U자형"
+ggplot(trend, aes(year, CV)) +
+  geom_line(color = "#d9683a", linewidth = 1.2) + geom_point(color = "#d9683a", size = 1.8) +
+  geom_point(data = trend %>% filter(year == min_cv_year),
+             color = "#d9683a", size = 4) +
+  annotate("text", x = min_cv_year, y = min(trend$CV) - 0.012,
+           label = sprintf("%d년 최대 수렴", min_cv_year), size = 3.3, fontface = "bold", color = "grey25") +
+  annotate("text", x = 2001, y = 0.20, label = "HIV/AIDS·체제전환\n→ 재발산",
+           size = 3, color = "grey40", lineheight = 0.9) +
+  scale_y_continuous(limits = c(NA, NA)) +
+  labs(x = NULL, y = "변동계수 (SD / 평균)", caption = GAP_CAPTION) +
+  theme_gap()
+```
+
+## Row
 
 ```{r}
-#| title: "연도별 단면 상관 (log10 GDP)"
-corr_by_year %>%
-  transmute(연도 = year, 상관계수 = round(`log10 GDP 단면상관`, 3)) %>%
+#| title: "모든 대륙이 올랐지만 아프리카만 1990년대에 정체했다 — 대륙별 기대수명(인구가중)"
+ct <- df %>% group_by(continent, year) %>%
+  summarise(lifeExp = weighted.mean(lifeExp, pop), .groups = "drop")
+ct_end <- ct %>% filter(year == yr_max)
+ggplot(ct, aes(year, lifeExp, color = continent)) +
+  geom_line(linewidth = 1.2) +
+  geom_text_repel(data = ct_end, aes(label = continent), nudge_x = 3, hjust = 0,
+                  direction = "y", segment.color = NA, fontface = "bold", size = 3.6) +
+  scale_color_manual(values = cont_pal, guide = "none") +
+  scale_x_continuous(expand = expansion(mult = c(0.02, 0.18))) +
+  labs(x = NULL, y = "기대수명 (세)", caption = GAP_CAPTION) +
+  theme_gap()
+```
+
+# 소득과 수명 {orientation="rows"}
+
+## Row {height="58%"}
+
+### Column {width="62%"}
+
+```{r}
+#| title: "소득은 수명을 끌어올리지만 점점 둔화된다 — 그리고 추세를 벗어난 나라들"
+out <- bind_rows(
+  latest %>% arrange(resid) %>% head(3) %>% mutate(grp = "추세 아래"),
+  latest %>% arrange(desc(resid)) %>% head(3) %>% mutate(grp = "추세 위"))
+ggplot(latest, aes(gdpPercap, lifeExp)) +
+  geom_point(aes(size = pop, color = continent), alpha = 0.65) +
+  geom_smooth(method = "lm", formula = y ~ x, se = FALSE,
+              color = "grey35", linetype = "dashed", linewidth = 0.7) +
+  geom_smooth(method = "loess", formula = y ~ x, se = FALSE,
+              color = "#1170AA", linewidth = 0.9) +
+  geom_text_repel(data = out, aes(label = country, color = continent),
+                  size = 3.2, fontface = "bold", show.legend = FALSE,
+                  max.overlaps = Inf, box.padding = 0.5) +
+  scale_x_log10(labels = scales::label_dollar()) +
+  scale_size(range = c(1.5, 14), guide = "none") +
+  scale_color_manual(values = cont_pal, name = NULL) +
+  labs(x = "1인당 GDP (로그 스케일)", y = "기대수명 (세)",
+       caption = paste0(GAP_CAPTION, " · 파란선=LOESS, 점선=로그-선형")) +
+  theme_gap()
+```
+
+### Column {width="38%"}
+
+```{r}
+#| title: "관계의 강도는 시대마다 다르다"
+corr_by_year %>% transmute(연도 = year, `상관(log GDP)` = round(상관, 3)) %>%
   kable(align = "r")
 ```
 
-::: {.callout-note}
-## 노트
-통합 상관 0.81은 '국가 간 차이'와 '연도별 동반 상승'의 **혼합**. 연도별 단면 상관은 **0.75–0.87**을 오가며, `r latest_year`년 로그-선형 회귀 **R² = `r round(summary(fit)$r.squared, 3)`**.
+::: {.callout-note appearance="simple"}
+통합 상관 **0.81**은 '국가 간 차이'와 '시간에 따른 동반 상승'의 혼합이다. 연도별 단면 상관은 **0.75–0.87**을 오가고, 2007년 로그-선형 회귀의 설명력은 **R² = `r round(r2,2)`** — 소득이 수명 분산의 약 `r round(r2*100)`%를 설명한다.
 :::
 
-## Row {height="40%"}
+## Row {height="42%"}
 
 ```{r}
-#| title: "소득 대비 기대수명이 낮은 국가 (음의 잔차) — HIV/AIDS 남부 아프리카"
+#| title: "💰 있어도 못 사는 나라 (소득 대비 수명 낮음 · 음의 잔차)"
 latest %>% arrange(resid) %>%
   transmute(국가 = country, 대륙 = continent, 기대수명 = round(lifeExp, 1),
             `1인당GDP` = round(gdpPercap), 잔차 = round(resid, 1)) %>%
@@ -205,9 +245,57 @@ latest %>% arrange(resid) %>%
 ```
 
 ```{r}
-#| title: "소득 대비 기대수명이 높은 국가 (양의 잔차) — 저소득 고성과"
+#| title: "🌱 가난해도 오래 사는 나라 (소득 대비 수명 높음 · 양의 잔차)"
 latest %>% arrange(desc(resid)) %>%
   transmute(국가 = country, 대륙 = continent, 기대수명 = round(lifeExp, 1),
             `1인당GDP` = round(gdpPercap), 잔차 = round(resid, 1)) %>%
   head(5) %>% kable(format.args = list(big.mark = ","), align = "r")
+```
+
+# 위기와 후퇴 {orientation="rows"}
+
+## Row {height="58%"}
+
+### Column {width="60%"}
+
+```{r}
+#| title: "진보는 되돌려질 수 있다 — HIV/AIDS가 남부 아프리카를 강타했다"
+traj <- df %>% filter(country %in% shock_set)
+traj_end <- traj %>% filter(year == yr_max)
+ggplot(traj, aes(year, lifeExp, color = country)) +
+  annotate("rect", xmin = 1990, xmax = 2005, ymin = -Inf, ymax = Inf,
+           fill = "grey50", alpha = 0.10) +
+  annotate("text", x = 1997.5, y = 65, label = "HIV/AIDS 유행", size = 3, color = "grey45") +
+  geom_line(linewidth = 1.1) +
+  geom_text_repel(data = traj_end, aes(label = country), nudge_x = 3, hjust = 0,
+                  direction = "y", segment.color = NA, size = 3.2, fontface = "bold") +
+  scale_x_continuous(expand = expansion(mult = c(0.02, 0.22))) +
+  scale_color_brewer(palette = "Dark2", guide = "none") +
+  labs(x = NULL, y = "기대수명 (세)", caption = GAP_CAPTION) +
+  theme_gap()
+```
+
+### Column {width="40%"}
+
+::: {.card title="왜 '시작 vs 끝' 비교로는 부족한가"}
+1952년과 2007년 두 시점만 비교하면 **순(純)후퇴 국가는 단 2곳**(짐바브웨·스와질란드)뿐이다.
+
+그러나 **정점 대비 하락폭(drawdown)** 으로 보면 이야기가 달라진다 — 보츠와나·남아공은 한때 **60세를 넘겼다가** 50세 안팎으로 추락했다(소득은 오히려 높음).
+
+같은 집단이 [소득과 수명] 탭의 *'있어도 못 사는 나라'* 와 정확히 겹친다. 소득이 아니라 **보건 위기**가 원인이라는 신호다.
+:::
+
+## Row {height="42%"}
+
+```{r}
+#| title: "정점 대비 기대수명 후퇴폭 — 상위 10개국 (거의 전부 남부 아프리카)"
+change %>% arrange(desc(drawdown)) %>% head(10) %>%
+  mutate(country = reorder(country, drawdown)) %>%
+  ggplot(aes(drawdown, country, fill = continent)) +
+  geom_col() +
+  geom_text(aes(label = sprintf("−%.1f", drawdown)), hjust = 1.1,
+            color = "white", fontface = "bold", size = 3.2) +
+  scale_fill_manual(values = cont_pal, name = NULL) +
+  labs(x = "정점 대비 후퇴폭 (년)", y = NULL, caption = GAP_CAPTION) +
+  theme_gap() + theme(legend.position = "right")
 ```
